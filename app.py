@@ -1,39 +1,78 @@
-import flask, os, shutil, datetime, zipfile, openpyxl
+import flask, os, shutil, datetime, zipfile, openpyxl, time
 from werkzeug.utils import secure_filename
+
 app = flask.Flask(__name__)
 app.config['SECRET_KEY'] = 'asdofijasdfoijasdfoij'
-app.config['UPLOAD_FOLDER'] = r'C:\Users\john\Desktop\CS\project\fnr'
+app.config['UPLOAD_FOLDER'] = r'C:\Users\David Fraser\Desktop\CS\fnr\UPLOAD_FOLDER'
 
-mf = r'C:\Users\john\Desktop\CS\project\fnr\MapData.xlsx'
-zf = r'C:\Users\john\Desktop\CS\project\fnr\testfiles.zip'
-sf = r'C:\Users\john\Desktop\CS\project\fnr\TestData.xlsx'
+OLD_FILE_DURATION = 300
 
 @app.route('/',methods=['POST', 'GET'])
 def main():
     if flask.request.method == 'POST':
-        if 'file' not in flask.request.files:
+        if 'source_target_upload' not in flask.request.files:
             flask.flash('No file')
             return flask.redirect(flask.request.url)
-        file = flask.request.files['file']
         
-        if file.filename == '':
-            flask.flash('No selected file')
-            return flask.redirect(flask.request.url)
-        if file:
-            filename = secure_filename(file.filename)
-            file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
-            return flask.redirect(flask.url_for('uploaded_file', filename=filename))
+        source_target_file = flask.request.files['source_target_upload']
+        mapped_file = flask.request.files['mapped_file_upload']
+
+        flask.request.files      
+        source_target_filename = check_save_file(source_target_file)
+        map_filename = check_save_file(mapped_file)
+        
+        dir_src_tgt = os.path.join(app.config['UPLOAD_FOLDER'], source_target_filename)
+        dir_map_file = os.path.join(app.config['UPLOAD_FOLDER'], map_filename)
+
+        ret_filename = director(dir_map_file, dir_src_tgt)
+        
+        return flask.redirect(flask.url_for('download_file', filename=ret_filename))
         
     return flask.render_template('index.html')
-    
 
+def delete_old_files():
+    path = app.config['UPLOAD_FOLDER']
+    files = os.listdir(path)
+    cur_time = time.time()
+    
+    for file in files:
+        name, ext = os.path.splitext(file)
+        if ext != '':
+            if (cur_time - os.stat(path+ '\\' + file).st_mtime) > OLD_FILE_DURATION:
+                os.remove(path+'\\'+file)
+   
+
+delete_old_files()
+def check_save_file(file):
+    if file.filename == '':
+        return False
+    filename = secure_filename(file.filename)
+    file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+    return filename
+
+""" Development work - attempt to create file in memory to return whilst 
+deleting the files in the path.  Works with non zip files.
+@app.route('/uploads2/<map_file>/<src_file>')
+def download_file2(map_file, src_file):
+    map_path = os.path.join(app.config['UPLOAD_FOLDER'], map_file)
+    src_path = os.path.join(app.config['UPLOAD_FOLDER'], src_file)
+    
+    def generate():
+        with open(map_path) as f:
+            yield from f
+        
+        os.remove(map_path)
+        os.remove(src_path)
+    
+    r = app.response_class(generate(), mimetype = 'zip/text/csv') #, mimetype='text/csv'
+    r.headers.set('Content-Disposition', 'attachment', filename='data.zip')
+    return r
+"""
 
 @app.route('/uploads/<filename>')
-def uploaded_file(filename):
+def download_file(filename):
+    delete_old_files()
     return(flask.send_from_directory(app.config['UPLOAD_FOLDER'],filename))
-
-
-    
     
 def director(file, *argv):
     name, ext = os.path.splitext(file)
@@ -45,13 +84,15 @@ def director(file, *argv):
             
     if len(argv) == 1:
         if ext == ".zip":
-            map_zip_remove(argv[0], file)
+            return map_zip_remove(argv[0], file)
         else:
             maps = map_file(argv[0])
-            replace_file(maps[0],maps[1], file)
-            
+            return replace_file(maps[0],maps[1], file)
+
 def map_file(file):
-    """ Reads excel file, returns list of lists, column 1 being the first list
+    """ 
+
+    Reads excel file, returns list of lists, column 1 being the first list
     of oldArr and 2nd column being the second list.  Sorts the list by the 
     first list so shorter matches won't occur first when longer possibilities
     exist
@@ -89,7 +130,7 @@ def map_zip_remove(mapfile, zipfile):
     """ Processes mapfile and passes values as arguments to mapping function"""
     
     arg_array = map_file(mapfile)
-    unpack_map_remove(arg_array[0],arg_array[1],zipfile)
+    return unpack_map_remove(arg_array[0],arg_array[1],zipfile)
 
 def unpack_map_remove(oldArr, newArr, zipfile):
     """ Unpacks zip file, runs mapping process, rezips output, deletes folder
@@ -102,7 +143,7 @@ def unpack_map_remove(oldArr, newArr, zipfile):
               all files are mapped
               
     Returns:
-        None
+        Absolute directory of the zip archive that was created
         
     Raises:
         None
@@ -110,9 +151,11 @@ def unpack_map_remove(oldArr, newArr, zipfile):
     
     newpath = unzip_file(zipfile)
     
-    map_zip_directory(oldArr, newArr, newpath)
-    
+    new_zip_dir = map_zip_directory(oldArr, newArr, newpath)
+    new_zip_filename = os.path.basename(new_zip_dir)
     shutil.rmtree(newpath)
+    
+    return new_zip_filename
     
 def unzip_file(file):
     """ Unpacks zip file into folder of the same name sans file extension 
@@ -136,6 +179,8 @@ def map_zip_directory(oldArr,newArr,directory):
     shutil.make_archive(new_directory, 'zip', new_directory)
     
     shutil.rmtree(new_directory)
+    
+    return(str(new_directory)+'.zip')
     
 def copy_directory(directory):
     """ Copies directory contents and creates new files with timestamped folder
@@ -214,7 +259,7 @@ def replace_file(oldArr, newArr, file):
         file: File to be mapped
     
     Returns:
-        None
+        String value of the absolute directory of the file that has been mapped
     
     Raises:
         None
@@ -232,6 +277,8 @@ def replace_file(oldArr, newArr, file):
         f = open(file, 'w')
         f.write(writedata)
         f.close()
+    
+    return (os.path.basename(file))
         
 
 def replace_excel(oldArr, newArr, file):
