@@ -1,0 +1,15 @@
+.custom-file {
+  margin-bottom: 15px;
+}
+
+.container {
+  height:100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+
+}
+
+#map_button {
+  float:right;
+}
